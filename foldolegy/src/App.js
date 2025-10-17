@@ -222,7 +222,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col items-center p-4">
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', width: '100%' }}>
       <h1 className="text-xl font-bold mb-2">Foldolegy – Snap-to-Grid</h1>
 
       <div className="flex gap-2 mb-3">
@@ -262,9 +262,9 @@ export default function App() {
         </button>
       </div>
 
-      <div className="flex gap-4">
+      <div style={{ display: 'flex', flexDirection: 'row', gap: '20px', justifyContent: 'center', alignItems: 'flex-start', flexWrap: 'nowrap', border: '2px solid red', padding: '10px' }}>
         {/* Erstes Raster */}
-        <div className="flex flex-col items-center">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '500px', border: '2px solid blue', padding: '10px' }}>
           <h3 className="text-lg font-semibold mb-2">Original Raster</h3>
           <Stage
             ref={stageRef}
@@ -349,7 +349,7 @@ export default function App() {
         </div>
 
         {/* Zweites Raster */}
-        <div className="flex flex-col items-center">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '500px', border: '2px solid green', padding: '10px' }}>
           <h3 className="text-lg font-semibold mb-2">Platzierte Shapes</h3>
           <Stage
             ref={secondStageRef}
