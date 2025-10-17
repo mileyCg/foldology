@@ -12,6 +12,7 @@ export default function App() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [groups, setGroups] = useState([]);
   const [placedShapes, setPlacedShapes] = useState([]); // For the second 5x5 area
+  const [rightGridTriangles, setRightGridTriangles] = useState([]); // Same grid structure for right side
   const stageRef = useRef();
   const trRef = useRef();
   const secondStageRef = useRef();
@@ -57,10 +58,52 @@ export default function App() {
       }
     }
     setTriangles(tris);
+    
+    // Create the same grid structure for the right side
+    const rightTris = [];
+    for (let row = 0; row < GRID_SIZE; row++) {
+      for (let col = 0; col < GRID_SIZE; col++) {
+        const x = col * CELL_SIZE;
+        const y = row * CELL_SIZE;
+        const half = CELL_SIZE / 2;
+        const cx = x + half;
+        const cy = y + half;
+
+        const color = "#e0f2fe"; // light blue
+        const base = { x: 0, y: 0, rotation: 0 };
+
+        rightTris.push({
+          id: `right-t-${row}-${col}-tl`,
+          points: [x, y, cx, cy, x + CELL_SIZE, y],
+          fill: color,
+          ...base,
+        });
+        rightTris.push({
+          id: `right-t-${row}-${col}-tr`,
+          points: [x + CELL_SIZE, y, cx, cy, x + CELL_SIZE, y + CELL_SIZE],
+          fill: color,
+          ...base,
+        });
+        rightTris.push({
+          id: `right-t-${row}-${col}-br`,
+          points: [x + CELL_SIZE, y + CELL_SIZE, cx, cy, x, y + CELL_SIZE],
+          fill: color,
+          ...base,
+        });
+        rightTris.push({
+          id: `right-t-${row}-${col}-bl`,
+          points: [x, y + CELL_SIZE, cx, cy, x, y],
+          fill: color,
+          ...base,
+        });
+      }
+    }
+    setRightGridTriangles(rightTris);
   }, []);
 
   // --- Klickauswahl ---
   const handleSelect = (id, e) => {
+    e.cancelBubble = true;
     const isShift = e.evt.shiftKey;
     if (isShift) {
       setSelectedIds((prev) =>
@@ -74,6 +117,7 @@ export default function App() {
   // --- Auswahlrechteck Start ---
   const handleMouseDown = (e) => {
     if (e.target !== e.target.getStage()) return;
+    e.cancelBubble = true;
     const { x, y } = e.target.getStage().getPointerPosition();
     setSelectionRect({ x, y, width: 0, height: 0 });
     setIsSelecting(true);
@@ -82,6 +126,7 @@ export default function App() {
   // --- Auswahlrechteck Bewegung ---
   const handleMouseMove = (e) => {
     if (!isSelecting || !selectionRect) return;
+    e.cancelBubble = true;
     const stage = e.target.getStage();
     const point = stage.getPointerPosition();
     setSelectionRect({
@@ -93,8 +138,9 @@ export default function App() {
   };
 
   // --- Auswahlrechteck Ende ---
-  const handleMouseUp = () => {
+  const handleMouseUp = (e) => {
     if (!isSelecting) return;
+    e.cancelBubble = true;
     const box = selectionRect;
     const selected = triangles
       .filter((t) => {
@@ -143,15 +189,28 @@ export default function App() {
     setSelectedIds([]);
   };
 
-  // --- Shapes in zweites Raster platzieren ---
-  const handlePlaceInSecondArea = () => {
+  // --- Shape in spezifische Zelle platzieren ---
+  const handlePlaceInCell = (targetId, e) => {
+    e.cancelBubble = true;
     if (selectedIds.length === 0) return;
+    
+    // Find the target cell position
+    const targetCell = rightGridTriangles.find(t => t.id === targetId);
+    if (!targetCell) return;
+    
+    // Calculate cell position (top-left corner of the cell)
+    const cellRow = Math.floor(targetCell.points[1] / CELL_SIZE);
+    const cellCol = Math.floor(targetCell.points[0] / CELL_SIZE);
+    const cellX = cellCol * CELL_SIZE;
+    const cellY = cellRow * CELL_SIZE;
+    
+    // Place selected shapes in this cell - ALL shapes go to the TOP of the cell
     const selectedShapes = triangles.filter((t) => selectedIds.includes(t.id));
     const newPlacedShapes = selectedShapes.map((shape, index) => ({
       ...shape,
       id: `placed-${Date.now()}-${index}`,
-      x: (index % 5) * CELL_SIZE,
-      y: Math.floor(index / 5) * CELL_SIZE,
+      x: cellX, // Always place at the top-left of the cell
+      y: cellY, // Always place at the top-left of the cell
     }));
     setPlacedShapes([...placedShapes, ...newPlacedShapes]);
     setSelectedIds([]);
@@ -162,22 +221,57 @@ export default function App() {
 
   const handleDragEnd = (e) => {
     const node = e.target;
+    const id = node.id();
+    
+    // Allow shapes to move anywhere within the grid bounds
+    const maxX = (GRID_SIZE - 1) * CELL_SIZE;
+    const maxY = (GRID_SIZE - 1) * CELL_SIZE;
+    
+    // Constrain to grid bounds but allow movement to any cell
+    const constrainedX = Math.max(0, Math.min(snap(node.x()), maxX));
+    const constrainedY = Math.max(0, Math.min(snap(node.y()), maxY));
+    
     node.position({
-      x: snap(node.x()),
-      y: snap(node.y()),
+      x: constrainedX,
+      y: constrainedY,
     });
+    
+    // Update the state to reflect the new position
+    setTriangles(prev => prev.map(tri => 
+      tri.id === id 
+        ? { ...tri, x: constrainedX, y: constrainedY }
+        : tri
+    ));
   };
 
   const handleTransformEnd = (e) => {
     const node = e.target;
+    const id = node.id();
+    
+    // Allow shapes to move anywhere within the grid bounds
+    const maxX = (GRID_SIZE - 1) * CELL_SIZE;
+    const maxY = (GRID_SIZE - 1) * CELL_SIZE;
+    
+    // Constrain to grid bounds but allow movement to any cell
+    const constrainedX = Math.max(0, Math.min(snap(node.x()), maxX));
+    const constrainedY = Math.max(0, Math.min(snap(node.y()), maxY));
+    
     node.position({
-      x: snap(node.x()),
-      y: snap(node.y()),
+      x: constrainedX,
+      y: constrainedY,
     });
+    
     // Snap rotation to 15-degree increments for better UX
     const rotation = node.rotation();
     const snappedRotation = Math.round(rotation / 15) * 15;
     node.rotation(snappedRotation);
+    
+    // Update the state to reflect the new position and rotation
+    setTriangles(prev => prev.map(tri => 
+      tri.id === id 
+        ? { ...tri, x: constrainedX, y: constrainedY, rotation: snappedRotation }
+        : tri
+    ));
   };
 
   // --- Transformer aktualisieren ---
@@ -238,17 +332,6 @@ export default function App() {
           Gruppieren ({selectedIds.length})
         </button>
         <button
-          onClick={handlePlaceInSecondArea}
-          disabled={selectedIds.length === 0}
-          className={`px-3 py-1 rounded text-white ${
-            selectedIds.length === 0
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-green-600 hover:bg-green-700"
-          }`}
-        >
-          In 2. Raster platzieren ({selectedIds.length})
-        </button>
-        <button
           onClick={() => setSelectedIds([])}
           className="bg-gray-500 text-white px-3 py-1 rounded"
         >
@@ -262,126 +345,149 @@ export default function App() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'row', gap: '20px', justifyContent: 'center', alignItems: 'flex-start', flexWrap: 'nowrap', border: '2px solid red', padding: '10px' }}>
-        {/* Erstes Raster */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '500px', border: '2px solid blue', padding: '10px' }}>
-          <h3 className="text-lg font-semibold mb-2">Original Raster</h3>
-          <Stage
-            ref={stageRef}
-            width={GRID_SIZE * CELL_SIZE}
-            height={GRID_SIZE * CELL_SIZE}
-            style={{ border: "1px solid #ccc", background: "#f7f7f7" }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onClick={handleDeselect}
-          >
-            <Layer>
-              {/* --- Rasterlinien --- */}
-              {gridLines}
+      {/* Single Stage with both grids side by side */}
+      <Stage
+        ref={stageRef}
+        width={GRID_SIZE * CELL_SIZE * 2 + 40} // Two grids + gap
+        height={GRID_SIZE * CELL_SIZE}
+        style={{ border: "1px solid #ccc", background: "#f7f7f7" }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onClick={handleDeselect}
+      >
+        {/* Background Layer - Both Grids */}
+        <Layer>
+          {/* Left Grid Background */}
+          <Line
+            points={[0, 0, GRID_SIZE * CELL_SIZE, 0, GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE, 0, GRID_SIZE * CELL_SIZE]}
+            closed
+            stroke="#ccc"
+            strokeWidth={1}
+            fill="#f7f7f7"
+          />
+          
+          {/* Right Grid Background */}
+          <Line
+            points={[GRID_SIZE * CELL_SIZE + 20, 0, (GRID_SIZE * CELL_SIZE * 2) + 20, 0, (GRID_SIZE * CELL_SIZE * 2) + 20, GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE + 20, GRID_SIZE * CELL_SIZE]}
+            closed
+            stroke="#ccc"
+            strokeWidth={1}
+            fill="#f0f8ff"
+          />
 
-              {/* --- Dreiecke --- */}
-              {triangles.map((tri) => (
-                <Line
-                  key={tri.id}
-                  id={tri.id}
-                  points={tri.points}
-                  closed
-                  fill={tri.fill}
-                  stroke={selectedIds.includes(tri.id) ? "red" : "#444"}
-                  strokeWidth={selectedIds.includes(tri.id) ? 2 : 0.5}
-                  draggable
-                  onClick={(e) => handleSelect(tri.id, e)}
-                  onTap={(e) => handleSelect(tri.id, e)}
-                  onDragEnd={handleDragEnd}
-                  onTransformEnd={handleTransformEnd}
-                />
-              ))}
+          {/* Left Grid Lines */}
+          {gridLines.map((line, index) => (
+            <Line
+              key={`left-${index}`}
+              {...line.props}
+            />
+          ))}
 
-              {/* --- Gruppen --- */}
-              {groups.map((group) => (
-                <Group
-                  key={group.id}
-                  id={group.id}
-                  draggable
-                  onClick={(e) => handleSelect(group.id, e)}
-                  onTap={(e) => handleSelect(group.id, e)}
-                  onDragEnd={handleDragEnd}
-                  onTransformEnd={handleTransformEnd}
-                >
-                  {group.shapes.map((s) => (
-                    <Line
-                      key={s.id}
-                      points={s.points}
-                      closed
-                      fill={s.fill}
-                      stroke="#444"
-                      strokeWidth={0.5}
-                    />
-                  ))}
-                </Group>
-              ))}
-
-              {/* --- Auswahlrechteck --- */}
-              {selectionRect && (
-                <Line
-                  points={[
-                    selectionRect.x,
-                    selectionRect.y,
-                    selectionRect.x + selectionRect.width,
-                    selectionRect.y,
-                    selectionRect.x + selectionRect.width,
-                    selectionRect.y + selectionRect.height,
-                    selectionRect.x,
-                    selectionRect.y + selectionRect.height,
-                  ]}
-                  closed
-                  stroke="blue"
-                  dash={[4, 4]}
-                  fill="rgba(0,0,255,0.1)"
-                />
+          {/* Right Grid Lines */}
+          {gridLines.map((line, index) => (
+            <Line
+              key={`right-${index}`}
+              {...line.props}
+              points={line.props.points.map((point, i) => 
+                i % 2 === 0 ? point + GRID_SIZE * CELL_SIZE + 20 : point
               )}
+            />
+          ))}
 
-              {/* --- Transformer --- */}
-              <Transformer ref={trRef} rotateEnabled={true} />
-            </Layer>
-          </Stage>
-        </div>
+          {/* Left Grid Cells (clickable) */}
+          {triangles.map((tri) => (
+            <Line
+              key={tri.id}
+              id={tri.id}
+              points={tri.points}
+              closed
+              fill={tri.fill}
+              stroke="#444"
+              strokeWidth={0.5}
+              opacity={0.3}
+              onClick={(e) => handleSelect(tri.id, e)}
+              style={{ cursor: 'pointer' }}
+              listening={true}
+              hitStrokeWidth={0}
+            />
+          ))}
 
-        {/* Zweites Raster */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '500px', border: '2px solid green', padding: '10px' }}>
-          <h3 className="text-lg font-semibold mb-2">Platzierte Shapes</h3>
-          <Stage
-            ref={secondStageRef}
-            width={GRID_SIZE * CELL_SIZE}
-            height={GRID_SIZE * CELL_SIZE}
-            style={{ border: "1px solid #ccc", background: "#f0f8ff" }}
-          >
-            <Layer>
-              {/* --- Rasterlinien für zweites Raster --- */}
-              {gridLines}
+          {/* Right Grid Cells (clickable) */}
+          {rightGridTriangles.map((tri) => (
+            <Line
+              key={tri.id}
+              id={tri.id}
+              points={tri.points.map((point, i) => 
+                i % 2 === 0 ? point + GRID_SIZE * CELL_SIZE + 20 : point
+              )}
+              closed
+              fill={tri.fill}
+              stroke="#444"
+              strokeWidth={0.5}
+              opacity={0.3}
+              onClick={(e) => handlePlaceInCell(tri.id, e)}
+              style={{ cursor: 'pointer' }}
+              listening={true}
+              hitStrokeWidth={0}
+            />
+          ))}
+        </Layer>
 
-              {/* --- Platzierte Shapes --- */}
-              {placedShapes.map((shape) => (
-                <Line
-                  key={shape.id}
-                  id={shape.id}
-                  points={shape.points}
-                  closed
-                  fill={shape.fill}
-                  stroke="#444"
-                  strokeWidth={0.5}
-                  x={shape.x}
-                  y={shape.y}
-                  draggable
-                  onDragEnd={handleDragEnd}
-                  onTransformEnd={handleTransformEnd}
-                />
-              ))}
-            </Layer>
-          </Stage>
-        </div>
-      </div>
+        {/* Surface Layer - Placed Shapes */}
+        <Layer>
+          {/* Placed Shapes - always on top */}
+          {placedShapes.map((shape) => (
+            <Line
+              key={shape.id}
+              id={shape.id}
+              points={shape.points}
+              closed
+              fill={shape.fill}
+              stroke="#ff0000"
+              strokeWidth={3}
+              x={shape.x + GRID_SIZE * CELL_SIZE + 20} // Offset for right grid
+              y={shape.y}
+              draggable
+              onClick={(e) => {
+                e.cancelBubble = true;
+                handleSelect(shape.id, e);
+              }}
+              onTap={(e) => {
+                e.cancelBubble = true;
+                handleSelect(shape.id, e);
+              }}
+              onDragEnd={handleDragEnd}
+              onTransformEnd={handleTransformEnd}
+              listening={true}
+              hitStrokeWidth={15}
+            />
+          ))}
+
+          {/* Selection Rectangle */}
+          {selectionRect && (
+            <Line
+              points={[
+                selectionRect.x,
+                selectionRect.y,
+                selectionRect.x + selectionRect.width,
+                selectionRect.y,
+                selectionRect.x + selectionRect.width,
+                selectionRect.y + selectionRect.height,
+                selectionRect.x,
+                selectionRect.y + selectionRect.height,
+              ]}
+              closed
+              stroke="blue"
+              dash={[4, 4]}
+              fill="rgba(0,0,255,0.1)"
+            />
+          )}
+
+          {/* Transformer */}
+          <Transformer ref={trRef} rotateEnabled={true} />
+        </Layer>
+      </Stage>
     </div>
   );
 }
