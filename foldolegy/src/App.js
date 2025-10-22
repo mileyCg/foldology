@@ -189,14 +189,20 @@ export default function App() {
     setSelectedIds([]);
   };
 
-  // --- Shape in spezifische Zelle platzieren ---
-  const handlePlaceInCell = (targetId, e) => {
+  // --- Move shapes from left to right grid ---
+  const handleMoveToRightGrid = (targetId, e) => {
     e.cancelBubble = true;
-    if (selectedIds.length === 0) return;
+    if (selectedIds.length === 0) {
+      console.log("No shapes selected");
+      return;
+    }
     
-    // Find the target cell position
+    // Find the target cell position in right grid
     const targetCell = rightGridTriangles.find(t => t.id === targetId);
-    if (!targetCell) return;
+    if (!targetCell) {
+      console.log("Target cell not found:", targetId);
+      return;
+    }
     
     // Calculate cell position (top-left corner of the cell)
     const cellRow = Math.floor(targetCell.points[1] / CELL_SIZE);
@@ -204,16 +210,119 @@ export default function App() {
     const cellX = cellCol * CELL_SIZE;
     const cellY = cellRow * CELL_SIZE;
     
-    // Place selected shapes in this cell - ALL shapes go to the TOP of the cell
+    console.log(`Target cell: Row ${cellRow}, Col ${cellCol}, Position (${cellX}, ${cellY})`);
+    
+    // Check if target cell is already occupied
+    const isOccupied = placedShapes.some(shape => 
+      Math.abs(shape.x - cellX) < CELL_SIZE && 
+      Math.abs(shape.y - cellY) < CELL_SIZE
+    );
+    
+    console.log(`Cell occupied: ${isOccupied}`);
+    console.log(`Current placed shapes:`, placedShapes.map(s => ({x: s.x, y: s.y})));
+    
+    if (isOccupied) {
+      // Find nearest free cell
+      const nearestFreeCell = findNearestFreeCell(cellX, cellY);
+      if (!nearestFreeCell) {
+        console.log("No free cells available");
+        return; // No free cells available
+      }
+      
+      console.log(`Moving to nearest free cell: (${nearestFreeCell.x}, ${nearestFreeCell.y})`);
+      // Move selected shapes to nearest free cell
+      moveShapesToCell(nearestFreeCell.x, nearestFreeCell.y);
+    } else {
+      console.log(`Moving to target cell: (${cellX}, ${cellY})`);
+      // Move shapes to target cell
+      moveShapesToCell(cellX, cellY);
+    }
+  };
+
+  // --- Find nearest free cell ---
+  const findNearestFreeCell = (targetX, targetY) => {
+    const targetRow = Math.floor(targetY / CELL_SIZE);
+    const targetCol = Math.floor(targetX / CELL_SIZE);
+    
+    console.log(`Searching for free cell near (${targetX}, ${targetY}) - Row ${targetRow}, Col ${targetCol}`);
+    
+    // Check all cells in expanding radius
+    for (let radius = 0; radius < GRID_SIZE; radius++) {
+      console.log(`Checking radius ${radius}`);
+      for (let row = Math.max(0, targetRow - radius); row <= Math.min(GRID_SIZE - 1, targetRow + radius); row++) {
+        for (let col = Math.max(0, targetCol - radius); col <= Math.min(GRID_SIZE - 1, targetCol + radius); col++) {
+          const cellX = col * CELL_SIZE;
+          const cellY = row * CELL_SIZE;
+          
+          // Check if this cell is free
+          const isOccupied = placedShapes.some(shape => 
+            Math.abs(shape.x - cellX) < CELL_SIZE && 
+            Math.abs(shape.y - cellY) < CELL_SIZE
+          );
+          
+          console.log(`Cell (${row}, ${col}) at (${cellX}, ${cellY}) - Occupied: ${isOccupied}`);
+          
+          if (!isOccupied) {
+            console.log(`Found free cell at (${cellX}, ${cellY})`);
+            return { x: cellX, y: cellY };
+          }
+        }
+      }
+    }
+    console.log("No free cells found");
+    return null; // No free cells
+  };
+
+  // --- Move shapes to specific cell ---
+  const moveShapesToCell = (cellX, cellY) => {
     const selectedShapes = triangles.filter((t) => selectedIds.includes(t.id));
-    const newPlacedShapes = selectedShapes.map((shape, index) => ({
+    
+    // Remove selected shapes from left grid
+    setTriangles(prev => prev.filter(t => !selectedIds.includes(t.id)));
+    
+    // Add shapes to right grid at specified cell
+    const movedShapes = selectedShapes.map((shape, index) => ({
       ...shape,
-      id: `placed-${Date.now()}-${index}`,
-      x: cellX, // Always place at the top-left of the cell
-      y: cellY, // Always place at the top-left of the cell
+      id: `moved-${Date.now()}-${index}`,
+      x: cellX,
+      y: cellY,
     }));
-    setPlacedShapes([...placedShapes, ...newPlacedShapes]);
+    
+    setPlacedShapes([...placedShapes, ...movedShapes]);
     setSelectedIds([]);
+  };
+
+  // --- Handle drag end for placed shapes ---
+  const handlePlacedShapeDragEnd = (e) => {
+    const node = e.target;
+    const shapeId = node.id();
+    
+    // Get the final position
+    const finalX = node.x();
+    const finalY = node.y();
+    
+    // Convert to grid coordinates (remove the offset for right grid)
+    const gridX = finalX - (GRID_SIZE * CELL_SIZE + 20);
+    const gridY = finalY;
+    
+    // Only constrain to grid bounds, but allow free movement within
+    const maxX = (GRID_SIZE - 1) * CELL_SIZE;
+    const maxY = (GRID_SIZE - 1) * CELL_SIZE;
+    const constrainedX = Math.max(0, Math.min(gridX, maxX));
+    const constrainedY = Math.max(0, Math.min(gridY, maxY));
+    
+    // Update position - allow free movement within grid bounds
+    node.position({
+      x: constrainedX + GRID_SIZE * CELL_SIZE + 20,
+      y: constrainedY,
+    });
+    
+    // Update state with exact position (no snapping)
+    setPlacedShapes(prev => prev.map(shape => 
+      shape.id === shapeId 
+        ? { ...shape, x: constrainedX, y: constrainedY }
+        : shape
+    ));
   };
 
   // --- Snap-to-Grid Funktion ---
@@ -338,10 +447,41 @@ export default function App() {
           Auswahl aufheben
         </button>
         <button
-          onClick={() => setPlacedShapes([])}
+          onClick={() => {
+            // Move all placed shapes back to left grid
+            setTriangles(prev => [...prev, ...placedShapes.map(shape => ({
+              ...shape,
+              id: shape.id.replace('moved-', 't-'),
+              x: 0,
+              y: 0,
+              rotation: 0
+            }))]);
+            setPlacedShapes([]);
+          }}
           className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded"
         >
-          2. Raster leeren
+          Shapes zurück
+        </button>
+        <button
+          onClick={() => {
+            console.log("=== GRID DEBUG INFO ===");
+            console.log("Placed shapes:", placedShapes);
+            console.log("Available cells:");
+            for (let row = 0; row < GRID_SIZE; row++) {
+              for (let col = 0; col < GRID_SIZE; col++) {
+                const cellX = col * CELL_SIZE;
+                const cellY = row * CELL_SIZE;
+                const isOccupied = placedShapes.some(shape => 
+                  Math.abs(shape.x - cellX) < CELL_SIZE && 
+                  Math.abs(shape.y - cellY) < CELL_SIZE
+                );
+                console.log(`Cell (${row}, ${col}) at (${cellX}, ${cellY}) - ${isOccupied ? 'OCCUPIED' : 'FREE'}`);
+              }
+            }
+          }}
+          className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
+        >
+          Debug Grid
         </button>
       </div>
 
@@ -413,25 +553,64 @@ export default function App() {
             />
           ))}
 
-          {/* Right Grid Cells (clickable) */}
-          {rightGridTriangles.map((tri) => (
+          {/* Green Prototype Shapes in Left Grid */}
+          {triangles.map((tri) => (
             <Line
-              key={tri.id}
-              id={tri.id}
-              points={tri.points.map((point, i) => 
-                i % 2 === 0 ? point + GRID_SIZE * CELL_SIZE + 20 : point
-              )}
+              key={`green-${tri.id}`}
+              id={`green-${tri.id}`}
+              points={tri.points}
               closed
-              fill={tri.fill}
-              stroke="#444"
-              strokeWidth={0.5}
-              opacity={0.3}
-              onClick={(e) => handlePlaceInCell(tri.id, e)}
-              style={{ cursor: 'pointer' }}
-              listening={true}
-              hitStrokeWidth={0}
+              fill="#22c55e"
+              stroke={selectedIds.includes(tri.id) ? "red" : "#444"}
+              strokeWidth={selectedIds.includes(tri.id) ? 2 : 0.5}
+              x={tri.x || 0}
+              y={tri.y || 0}
+              rotation={tri.rotation || 0}
+              draggable
+              onClick={(e) => handleSelect(tri.id, e)}
+              onTap={(e) => handleSelect(tri.id, e)}
+              onDragEnd={handleDragEnd}
+              onTransformEnd={handleTransformEnd}
             />
           ))}
+
+          {/* Right Grid Cells (clickable) */}
+          {rightGridTriangles.map((tri) => {
+            const cellRow = Math.floor(tri.points[1] / CELL_SIZE);
+            const cellCol = Math.floor(tri.points[0] / CELL_SIZE);
+            const cellX = cellCol * CELL_SIZE;
+            const cellY = cellRow * CELL_SIZE;
+            
+            // Check if this cell is occupied
+            const isOccupied = placedShapes.some(shape => 
+              Math.abs(shape.x - cellX) < CELL_SIZE && 
+              Math.abs(shape.y - cellY) < CELL_SIZE
+            );
+            
+            return (
+              <Line
+                key={tri.id}
+                id={tri.id}
+                points={tri.points.map((point, i) => 
+                  i % 2 === 0 ? point + GRID_SIZE * CELL_SIZE + 20 : point
+                )}
+                closed
+                fill={isOccupied ? "#ff6b6b" : tri.fill} // Red if occupied, original color if free
+                stroke={isOccupied ? "#ff0000" : "#444"}
+                strokeWidth={isOccupied ? 2 : 0.5}
+                opacity={isOccupied ? 0.6 : 0.3}
+                onClick={(e) => {
+                  // Only handle clicks if no placed shapes are in this area
+                  if (!isOccupied) {
+                    handleMoveToRightGrid(tri.id, e);
+                  }
+                }}
+                style={{ cursor: isOccupied ? 'not-allowed' : 'pointer' }}
+                listening={!isOccupied} // Don't listen if occupied
+                hitStrokeWidth={0}
+              />
+            );
+          })}
         </Layer>
 
         {/* Surface Layer - Placed Shapes */}
@@ -451,16 +630,39 @@ export default function App() {
               draggable
               onClick={(e) => {
                 e.cancelBubble = true;
+                e.evt.stopPropagation();
+                console.log("Clicked placed shape:", shape.id);
                 handleSelect(shape.id, e);
               }}
               onTap={(e) => {
                 e.cancelBubble = true;
+                e.evt.stopPropagation();
+                console.log("Tapped placed shape:", shape.id);
                 handleSelect(shape.id, e);
               }}
-              onDragEnd={handleDragEnd}
+              onMouseDown={(e) => {
+                e.cancelBubble = true;
+                e.evt.stopPropagation();
+                console.log("Mouse down on placed shape:", shape.id);
+              }}
+              onDragStart={(e) => {
+                e.cancelBubble = true;
+                e.evt.stopPropagation();
+                console.log("Drag start on placed shape:", shape.id);
+                // Bring to front when dragging starts
+                e.target.moveToTop();
+                e.target.getStage().batchDraw();
+              }}
+              onDragEnd={(e) => {
+                e.cancelBubble = true;
+                e.evt.stopPropagation();
+                console.log("Drag end on placed shape:", shape.id);
+                handlePlacedShapeDragEnd(e);
+              }}
               onTransformEnd={handleTransformEnd}
               listening={true}
-              hitStrokeWidth={15}
+              hitStrokeWidth={20}
+              perfectDrawEnabled={false}
             />
           ))}
 
