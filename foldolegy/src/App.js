@@ -1,24 +1,27 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Stage, Layer, Line, Transformer, Group } from "react-konva";
+import { Stage, Layer, Line, Transformer } from "react-konva";
 
+// Constants
 const GRID_SIZE = 5;
 const CELL_SIZE = 100;
-const SNAP_STEP = 10; // Einrasten alle 10 px (fein genug für Druckraster)
+const SNAP_STEP = 10;
 
 export default function App() {
+  // State
   const [triangles, setTriangles] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionRect, setSelectionRect] = useState(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [groups, setGroups] = useState([]);
-  const [placedShapes, setPlacedShapes] = useState([]); // For the second 5x5 area
-  const [rightGridTriangles, setRightGridTriangles] = useState([]); // Same grid structure for right side
+  const [placedShapes, setPlacedShapes] = useState([]);
+  const [rightGridTriangles, setRightGridTriangles] = useState([]);
+  
+  // Refs
   const stageRef = useRef();
   const trRef = useRef();
-  const secondStageRef = useRef();
 
-  // --- Raster vorbereiten ---
-  useEffect(() => {
+  // --- Grid Generation Helper ---
+  const generateGridTriangles = (prefix, color) => {
     const tris = [];
     for (let row = 0; row < GRID_SIZE; row++) {
       for (let col = 0; col < GRID_SIZE; col++) {
@@ -28,93 +31,56 @@ export default function App() {
         const cx = x + half;
         const cy = y + half;
 
-        const color = "#6ee7b7"; // grün
         const base = { x: 0, y: 0, rotation: 0 };
 
-        tris.push({
-          id: `t-${row}-${col}-tl`,
-          points: [x, y, cx, cy, x + CELL_SIZE, y],
-          fill: color,
-          ...base,
-        });
-        tris.push({
-          id: `t-${row}-${col}-tr`,
-          points: [x + CELL_SIZE, y, cx, cy, x + CELL_SIZE, y + CELL_SIZE],
-          fill: color,
-          ...base,
-        });
-        tris.push({
-          id: `t-${row}-${col}-br`,
-          points: [x + CELL_SIZE, y + CELL_SIZE, cx, cy, x, y + CELL_SIZE],
-          fill: color,
-          ...base,
-        });
-        tris.push({
-          id: `t-${row}-${col}-bl`,
-          points: [x, y + CELL_SIZE, cx, cy, x, y],
-          fill: color,
-          ...base,
+        // Create 4 triangles per cell
+        const triangleConfigs = [
+          { suffix: 'tl', points: [x, y, cx, cy, x + CELL_SIZE, y] },
+          { suffix: 'tr', points: [x + CELL_SIZE, y, cx, cy, x + CELL_SIZE, y + CELL_SIZE] },
+          { suffix: 'br', points: [x + CELL_SIZE, y + CELL_SIZE, cx, cy, x, y + CELL_SIZE] },
+          { suffix: 'bl', points: [x, y + CELL_SIZE, cx, cy, x, y] }
+        ];
+
+        triangleConfigs.forEach(({ suffix, points }) => {
+          tris.push({
+            id: `${prefix}-${row}-${col}-${suffix}`,
+            points,
+            fill: color,
+            ...base,
+          });
         });
       }
     }
-    setTriangles(tris);
-    
-    // Create the same grid structure for the right side
-    const rightTris = [];
-    for (let row = 0; row < GRID_SIZE; row++) {
-      for (let col = 0; col < GRID_SIZE; col++) {
-        const x = col * CELL_SIZE;
-        const y = row * CELL_SIZE;
-        const half = CELL_SIZE / 2;
-        const cx = x + half;
-        const cy = y + half;
+    return tris;
+  };
 
-        const color = "#e0f2fe"; // light blue
-        const base = { x: 0, y: 0, rotation: 0 };
-
-        rightTris.push({
-          id: `right-t-${row}-${col}-tl`,
-          points: [x, y, cx, cy, x + CELL_SIZE, y],
-          fill: color,
-          ...base,
-        });
-        rightTris.push({
-          id: `right-t-${row}-${col}-tr`,
-          points: [x + CELL_SIZE, y, cx, cy, x + CELL_SIZE, y + CELL_SIZE],
-          fill: color,
-          ...base,
-        });
-        rightTris.push({
-          id: `right-t-${row}-${col}-br`,
-          points: [x + CELL_SIZE, y + CELL_SIZE, cx, cy, x, y + CELL_SIZE],
-          fill: color,
-          ...base,
-        });
-        rightTris.push({
-          id: `right-t-${row}-${col}-bl`,
-          points: [x, y + CELL_SIZE, cx, cy, x, y],
-          fill: color,
-          ...base,
-        });
-      }
-    }
-    setRightGridTriangles(rightTris);
+  // --- Initialize Grids ---
+  useEffect(() => {
+    setTriangles(generateGridTriangles('t', '#6ee7b7')); // Green
+    setRightGridTriangles(generateGridTriangles('right-t', '#e0f2fe')); // Light blue
   }, []);
 
-  // --- Klickauswahl ---
+  // --- Selection Handlers ---
   const handleSelect = (id, e) => {
     e.cancelBubble = true;
     const isShift = e.evt.shiftKey;
+    
     if (isShift) {
-      setSelectedIds((prev) =>
-        prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id]
+      setSelectedIds(prev =>
+        prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]
       );
     } else {
       setSelectedIds([id]);
     }
   };
 
-  // --- Auswahlrechteck Start ---
+  const handleDeselect = (e) => {
+    if (e.target === e.target.getStage() && !isSelecting) {
+      setSelectedIds([]);
+    }
+  };
+
+  // --- Selection Rectangle ---
   const handleMouseDown = (e) => {
     if (e.target !== e.target.getStage()) return;
     e.cancelBubble = true;
@@ -123,7 +89,6 @@ export default function App() {
     setIsSelecting(true);
   };
 
-  // --- Auswahlrechteck Bewegung ---
   const handleMouseMove = (e) => {
     if (!isSelecting || !selectionRect) return;
     e.cancelBubble = true;
@@ -137,187 +102,255 @@ export default function App() {
     });
   };
 
-  // --- Auswahlrechteck Ende ---
   const handleMouseUp = (e) => {
     if (!isSelecting) return;
     e.cancelBubble = true;
+    
     const box = selectionRect;
-    const selected = triangles
-      .filter((t) => {
-        const xs = t.points.filter((_, i) => i % 2 === 0);
-        const ys = t.points.filter((_, i) => i % 2 === 1);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-        return (
-          minX < box.x + box.width &&
-          maxX > box.x &&
-          minY < box.y + box.height &&
-          maxY > box.y
-        );
-      })
-      .map((t) => t.id);
-    setSelectedIds(selected);
+    const selected = triangles.filter(t => {
+      const xs = t.points.filter((_, i) => i % 2 === 0);
+      const ys = t.points.filter((_, i) => i % 2 === 1);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      
+      return !(maxX < box.x || minX > box.x + box.width || maxY < box.y || minY > box.y + box.height);
+    });
+    
+    setSelectedIds(selected.map(t => t.id));
     setSelectionRect(null);
     setIsSelecting(false);
   };
 
-  // --- Klick ins Leere = Deselektieren ---
-  const handleDeselect = (e) => {
-    if (e.target === e.target.getStage() && !isSelecting) {
-      setSelectedIds([]);
-    }
-  };
-
-  // --- Gruppieren ---
+  // --- Grouping ---
   const handleGroup = () => {
     if (selectedIds.length < 2) return;
-    const grouped = triangles.filter((t) => selectedIds.includes(t.id));
-    const rest = triangles.filter((t) => !selectedIds.includes(t.id));
-    setGroups([
-      ...groups,
-      {
-        id: `group-${groups.length}`,
-        shapes: grouped,
-        x: 0,
-        y: 0,
-        rotation: 0,
-      },
-    ]);
-    setTriangles(rest);
+    
+    const newGroup = {
+      id: `group-${Date.now()}`,
+      shapes: selectedIds.map(id => triangles.find(t => t.id === id)).filter(Boolean),
+      x: 0,
+      y: 0,
+      rotation: 0,
+    };
+    
+    setGroups(prev => [...prev, newGroup]);
+    setTriangles(prev => prev.map(triangle => 
+      selectedIds.includes(triangle.id) 
+        ? { ...triangle, groupId: newGroup.id }
+        : triangle
+    ));
     setSelectedIds([]);
   };
 
-  // --- Move shapes from left to right grid ---
+  // --- Utility Functions ---
+  const snap = (value) => Math.round(value / SNAP_STEP) * SNAP_STEP;
+
+  const findNearestFreeCell = (targetX, targetY) => {
+    const targetRow = Math.floor(targetY / CELL_SIZE);
+    const targetCol = Math.floor(targetX / CELL_SIZE);
+    
+    for (let radius = 0; radius < GRID_SIZE; radius++) {
+      for (let row = Math.max(0, targetRow - radius); row <= Math.min(GRID_SIZE - 1, targetRow + radius); row++) {
+        for (let col = Math.max(0, targetCol - radius); col <= Math.min(GRID_SIZE - 1, targetCol + radius); col++) {
+          if (Math.abs(row - targetRow) === radius || Math.abs(col - targetCol) === radius) {
+            const cellX = col * CELL_SIZE;
+            const cellY = row * CELL_SIZE;
+            const isOccupied = placedShapes.some(shape => 
+              Math.abs(shape.x - cellX) < CELL_SIZE && 
+              Math.abs(shape.y - cellY) < CELL_SIZE
+            );
+            
+            if (!isOccupied) {
+              return { x: cellX, y: cellY };
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  // --- Shape Movement ---
+  const moveShapesToCell = (cellX, cellY) => {
+    try {
+      const selectedShapes = triangles.filter(t => selectedIds.includes(t.id));
+      
+      if (selectedShapes.length === 0) {
+        console.log("No selected shapes to move");
+        return;
+      }
+      
+      setTriangles(prev => prev.filter(t => !selectedIds.includes(t.id)));
+      
+      const movedShapes = selectedShapes.map((shape, index) => ({
+        ...shape,
+        id: `moved-${Date.now()}-${index}`,
+        x: cellX,
+        y: cellY,
+        groupId: undefined
+      }));
+      
+      setPlacedShapes(prev => [...prev, ...movedShapes]);
+      setSelectedIds([]);
+      
+      console.log(`Successfully moved ${movedShapes.length} shapes to cell (${cellX}, ${cellY})`);
+    } catch (error) {
+      console.error("Error moving shapes to cell:", error);
+    }
+  };
+
   const handleMoveToRightGrid = (targetId, e) => {
     e.cancelBubble = true;
-    if (selectedIds.length === 0) {
-      console.log("No shapes selected");
-      return;
-    }
+    if (selectedIds.length === 0) return;
     
-    // Find the target cell position in right grid
     const targetCell = rightGridTriangles.find(t => t.id === targetId);
-    if (!targetCell) {
-      console.log("Target cell not found:", targetId);
-      return;
-    }
+    if (!targetCell) return;
     
-    // Calculate cell position (top-left corner of the cell)
     const cellRow = Math.floor(targetCell.points[1] / CELL_SIZE);
     const cellCol = Math.floor(targetCell.points[0] / CELL_SIZE);
     const cellX = cellCol * CELL_SIZE;
     const cellY = cellRow * CELL_SIZE;
     
-    console.log(`Target cell: Row ${cellRow}, Col ${cellCol}, Position (${cellX}, ${cellY})`);
-    
-    // Check if target cell is already occupied
     const isOccupied = placedShapes.some(shape => 
       Math.abs(shape.x - cellX) < CELL_SIZE && 
       Math.abs(shape.y - cellY) < CELL_SIZE
     );
     
-    console.log(`Cell occupied: ${isOccupied}`);
-    console.log(`Current placed shapes:`, placedShapes.map(s => ({x: s.x, y: s.y})));
-    
     if (isOccupied) {
-      // Find nearest free cell
       const nearestFreeCell = findNearestFreeCell(cellX, cellY);
-      if (!nearestFreeCell) {
-        console.log("No free cells available");
-        return; // No free cells available
+      if (nearestFreeCell) {
+        moveShapesToCell(nearestFreeCell.x, nearestFreeCell.y);
       }
-      
-      console.log(`Moving to nearest free cell: (${nearestFreeCell.x}, ${nearestFreeCell.y})`);
-      // Move selected shapes to nearest free cell
-      moveShapesToCell(nearestFreeCell.x, nearestFreeCell.y);
     } else {
-      console.log(`Moving to target cell: (${cellX}, ${cellY})`);
-      // Move shapes to target cell
       moveShapesToCell(cellX, cellY);
     }
   };
 
-  // --- Find nearest free cell ---
-  const findNearestFreeCell = (targetX, targetY) => {
-    const targetRow = Math.floor(targetY / CELL_SIZE);
-    const targetCol = Math.floor(targetX / CELL_SIZE);
+  // --- Drag Handlers ---
+  const handleDragEnd = (e) => {
+    const node = e.target;
+    const id = node.id().replace('green-', '');
+    const maxX = (GRID_SIZE - 1) * CELL_SIZE;
+    const maxY = (GRID_SIZE - 1) * CELL_SIZE;
+    const constrainedX = Math.max(0, Math.min(snap(node.x()), maxX));
+    const constrainedY = Math.max(0, Math.min(snap(node.y()), maxY));
     
-    console.log(`Searching for free cell near (${targetX}, ${targetY}) - Row ${targetRow}, Col ${targetCol}`);
+    const draggedTriangle = triangles.find(tri => tri.id === id);
     
-    // Check all cells in expanding radius
-    for (let radius = 0; radius < GRID_SIZE; radius++) {
-      console.log(`Checking radius ${radius}`);
-      for (let row = Math.max(0, targetRow - radius); row <= Math.min(GRID_SIZE - 1, targetRow + radius); row++) {
-        for (let col = Math.max(0, targetCol - radius); col <= Math.min(GRID_SIZE - 1, targetCol + radius); col++) {
-          const cellX = col * CELL_SIZE;
-          const cellY = row * CELL_SIZE;
-          
-          // Check if this cell is free
-          const isOccupied = placedShapes.some(shape => 
-            Math.abs(shape.x - cellX) < CELL_SIZE && 
-            Math.abs(shape.y - cellY) < CELL_SIZE
-          );
-          
-          console.log(`Cell (${row}, ${col}) at (${cellX}, ${cellY}) - Occupied: ${isOccupied}`);
-          
-          if (!isOccupied) {
-            console.log(`Found free cell at (${cellX}, ${cellY})`);
-            return { x: cellX, y: cellY };
-          }
+    if (draggedTriangle && draggedTriangle.groupId) {
+      // Group movement
+      const groupShapes = triangles.filter(tri => tri.groupId === draggedTriangle.groupId);
+      const deltaX = constrainedX - (draggedTriangle.x || 0);
+      const deltaY = constrainedY - (draggedTriangle.y || 0);
+      
+      setTriangles(prev => prev.map(tri => {
+        if (tri.groupId === draggedTriangle.groupId) {
+          return {
+            ...tri,
+            x: Math.max(0, Math.min((tri.x || 0) + deltaX, maxX)),
+            y: Math.max(0, Math.min((tri.y || 0) + deltaY, maxY))
+          };
         }
-      }
+        return tri;
+      }));
+      
+      // Update visual positions
+      groupShapes.forEach(shape => {
+        const shapeNode = stageRef.current?.find(`green-${shape.id}`);
+        if (shapeNode) {
+          const newShapeX = Math.max(0, Math.min((shape.x || 0) + deltaX, maxX));
+          const newShapeY = Math.max(0, Math.min((shape.y || 0) + deltaY, maxY));
+          shapeNode.position({ x: newShapeX, y: newShapeY });
+        }
+      });
+      
+      node.position({ x: constrainedX, y: constrainedY });
+    } else {
+      // Individual movement
+      node.position({ x: constrainedX, y: constrainedY });
+      setTriangles(prev => prev.map(tri => 
+        tri.id === id 
+          ? { ...tri, x: constrainedX, y: constrainedY }
+          : tri
+      ));
     }
-    console.log("No free cells found");
-    return null; // No free cells
   };
 
-  // --- Move shapes to specific cell ---
-  const moveShapesToCell = (cellX, cellY) => {
-    const selectedShapes = triangles.filter((t) => selectedIds.includes(t.id));
+  const handleTransformEnd = (e) => {
+    const node = e.target;
+    const id = node.id().replace('green-', '');
+    const maxX = (GRID_SIZE - 1) * CELL_SIZE;
+    const maxY = (GRID_SIZE - 1) * CELL_SIZE;
+    const constrainedX = Math.max(0, Math.min(snap(node.x()), maxX));
+    const constrainedY = Math.max(0, Math.min(snap(node.y()), maxY));
+    const snappedRotation = Math.round(node.rotation() / 15) * 15;
     
-    // Remove selected shapes from left grid
-    setTriangles(prev => prev.filter(t => !selectedIds.includes(t.id)));
+    const draggedTriangle = triangles.find(tri => tri.id === id);
     
-    // Add shapes to right grid at specified cell
-    const movedShapes = selectedShapes.map((shape, index) => ({
-      ...shape,
-      id: `moved-${Date.now()}-${index}`,
-      x: cellX,
-      y: cellY,
-    }));
-    
-    setPlacedShapes([...placedShapes, ...movedShapes]);
-    setSelectedIds([]);
+    if (draggedTriangle && draggedTriangle.groupId) {
+      // Group transformation
+      const groupShapes = triangles.filter(tri => tri.groupId === draggedTriangle.groupId);
+      const deltaX = constrainedX - (draggedTriangle.x || 0);
+      const deltaY = constrainedY - (draggedTriangle.y || 0);
+      const deltaRotation = snappedRotation - (draggedTriangle.rotation || 0);
+      
+      setTriangles(prev => prev.map(tri => {
+        if (tri.groupId === draggedTriangle.groupId) {
+          return {
+            ...tri,
+            x: Math.max(0, Math.min((tri.x || 0) + deltaX, maxX)),
+            y: Math.max(0, Math.min((tri.y || 0) + deltaY, maxY)),
+            rotation: (tri.rotation || 0) + deltaRotation
+          };
+        }
+        return tri;
+      }));
+      
+      // Update visual positions and rotations
+      groupShapes.forEach(shape => {
+        const shapeNode = stageRef.current?.find(`green-${shape.id}`);
+        if (shapeNode) {
+          const newShapeX = Math.max(0, Math.min((shape.x || 0) + deltaX, maxX));
+          const newShapeY = Math.max(0, Math.min((shape.y || 0) + deltaY, maxY));
+          const newShapeRotation = (shape.rotation || 0) + deltaRotation;
+          shapeNode.position({ x: newShapeX, y: newShapeY });
+          shapeNode.rotation(newShapeRotation);
+        }
+      });
+      
+      node.position({ x: constrainedX, y: constrainedY });
+      node.rotation(snappedRotation);
+    } else {
+      // Individual transformation
+      node.position({ x: constrainedX, y: constrainedY });
+      node.rotation(snappedRotation);
+      setTriangles(prev => prev.map(tri => 
+        tri.id === id 
+          ? { ...tri, x: constrainedX, y: constrainedY, rotation: snappedRotation }
+          : tri
+      ));
+    }
   };
 
-  // --- Handle drag end for placed shapes ---
   const handlePlacedShapeDragEnd = (e) => {
     const node = e.target;
     const shapeId = node.id();
-    
-    // Get the final position
     const finalX = node.x();
     const finalY = node.y();
-    
-    // Convert to grid coordinates (remove the offset for right grid)
     const gridX = finalX - (GRID_SIZE * CELL_SIZE + 20);
     const gridY = finalY;
-    
-    // Only constrain to grid bounds, but allow free movement within
     const maxX = (GRID_SIZE - 1) * CELL_SIZE;
     const maxY = (GRID_SIZE - 1) * CELL_SIZE;
     const constrainedX = Math.max(0, Math.min(gridX, maxX));
     const constrainedY = Math.max(0, Math.min(gridY, maxY));
     
-    // Update position - allow free movement within grid bounds
     node.position({
       x: constrainedX + GRID_SIZE * CELL_SIZE + 20,
       y: constrainedY,
     });
     
-    // Update state with exact position (no snapping)
     setPlacedShapes(prev => prev.map(shape => 
       shape.id === shapeId 
         ? { ...shape, x: constrainedX, y: constrainedY }
@@ -325,84 +358,18 @@ export default function App() {
     ));
   };
 
-  // --- Snap-to-Grid Funktion ---
-  const snap = (value) => Math.round(value / SNAP_STEP) * SNAP_STEP;
-
-  const handleDragEnd = (e) => {
-    const node = e.target;
-    const id = node.id();
-    
-    // Allow shapes to move anywhere within the grid bounds
-    const maxX = (GRID_SIZE - 1) * CELL_SIZE;
-    const maxY = (GRID_SIZE - 1) * CELL_SIZE;
-    
-    // Constrain to grid bounds but allow movement to any cell
-    const constrainedX = Math.max(0, Math.min(snap(node.x()), maxX));
-    const constrainedY = Math.max(0, Math.min(snap(node.y()), maxY));
-    
-    node.position({
-      x: constrainedX,
-      y: constrainedY,
-    });
-    
-    // Update the state to reflect the new position
-    setTriangles(prev => prev.map(tri => 
-      tri.id === id 
-        ? { ...tri, x: constrainedX, y: constrainedY }
-        : tri
-    ));
-  };
-
-  const handleTransformEnd = (e) => {
-    const node = e.target;
-    const id = node.id();
-    
-    // Allow shapes to move anywhere within the grid bounds
-    const maxX = (GRID_SIZE - 1) * CELL_SIZE;
-    const maxY = (GRID_SIZE - 1) * CELL_SIZE;
-    
-    // Constrain to grid bounds but allow movement to any cell
-    const constrainedX = Math.max(0, Math.min(snap(node.x()), maxX));
-    const constrainedY = Math.max(0, Math.min(snap(node.y()), maxY));
-    
-    node.position({
-      x: constrainedX,
-      y: constrainedY,
-    });
-    
-    // Snap rotation to 15-degree increments for better UX
-    const rotation = node.rotation();
-    const snappedRotation = Math.round(rotation / 15) * 15;
-    node.rotation(snappedRotation);
-    
-    // Update the state to reflect the new position and rotation
-    setTriangles(prev => prev.map(tri => 
-      tri.id === id 
-        ? { ...tri, x: constrainedX, y: constrainedY, rotation: snappedRotation }
-        : tri
-    ));
-  };
-
-  // --- Transformer aktualisieren ---
+  // --- Transformer ---
   useEffect(() => {
     const stage = stageRef.current;
     const transformer = trRef.current;
     if (!stage || !transformer) return;
-    
-    const nodes = selectedIds
-      .map((id) => stage.findOne(`#${id}`))
-      .filter(Boolean);
-    
-    if (nodes.length > 0) {
-      transformer.nodes(nodes);
-      transformer.getLayer()?.batchDraw();
-    } else {
-      transformer.nodes([]);
-      transformer.getLayer()?.batchDraw();
-    }
+
+    const selectedNodes = selectedIds.map(id => stage.findOne(`#green-${id}`)).filter(Boolean);
+    transformer.nodes(selectedNodes);
+    transformer.getLayer()?.batchDraw();
   }, [selectedIds]);
 
-  // --- Rasterlinien zeichnen ---
+  // --- Grid Lines ---
   const gridLines = [];
   for (let i = 0; i <= GRID_SIZE; i++) {
     const pos = i * CELL_SIZE;
@@ -417,6 +384,28 @@ export default function App() {
     gridLines.push(
       <Line
         key={`h-${i}`}
+        points={[0, pos, GRID_SIZE * CELL_SIZE, pos]}
+        stroke="#888"
+        strokeWidth={0.5}
+      />
+    );
+  }
+
+  // --- Right Grid Lines ---
+  const rightGridLines = [];
+  for (let i = 0; i <= GRID_SIZE; i++) {
+    const pos = i * CELL_SIZE;
+    rightGridLines.push(
+      <Line
+        key={`right-v-${i}`}
+        points={[pos, 0, pos, GRID_SIZE * CELL_SIZE]}
+        stroke="#888"
+        strokeWidth={0.5}
+      />
+    );
+    rightGridLines.push(
+      <Line
+        key={`right-h-${i}`}
         points={[0, pos, GRID_SIZE * CELL_SIZE, pos]}
         stroke="#888"
         strokeWidth={0.5}
@@ -448,7 +437,6 @@ export default function App() {
         </button>
         <button
           onClick={() => {
-            // Move all placed shapes back to left grid
             setTriangles(prev => [...prev, ...placedShapes.map(shape => ({
               ...shape,
               id: shape.id.replace('moved-', 't-'),
@@ -462,33 +450,12 @@ export default function App() {
         >
           Shapes zurück
         </button>
-        <button
-          onClick={() => {
-            console.log("=== GRID DEBUG INFO ===");
-            console.log("Placed shapes:", placedShapes);
-            console.log("Available cells:");
-            for (let row = 0; row < GRID_SIZE; row++) {
-              for (let col = 0; col < GRID_SIZE; col++) {
-                const cellX = col * CELL_SIZE;
-                const cellY = row * CELL_SIZE;
-                const isOccupied = placedShapes.some(shape => 
-                  Math.abs(shape.x - cellX) < CELL_SIZE && 
-                  Math.abs(shape.y - cellY) < CELL_SIZE
-                );
-                console.log(`Cell (${row}, ${col}) at (${cellX}, ${cellY}) - ${isOccupied ? 'OCCUPIED' : 'FREE'}`);
-              }
-            }
-          }}
-          className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
-        >
-          Debug Grid
-        </button>
       </div>
 
       {/* Single Stage with both grids side by side */}
       <Stage
         ref={stageRef}
-        width={GRID_SIZE * CELL_SIZE * 2 + 40} // Two grids + gap
+        width={GRID_SIZE * CELL_SIZE * 2 + 40}
         height={GRID_SIZE * CELL_SIZE}
         style={{ border: "1px solid #ccc", background: "#f7f7f7" }}
         onMouseDown={handleMouseDown}
@@ -498,42 +465,8 @@ export default function App() {
       >
         {/* Background Layer - Both Grids */}
         <Layer>
-          {/* Left Grid Background */}
-          <Line
-            points={[0, 0, GRID_SIZE * CELL_SIZE, 0, GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE, 0, GRID_SIZE * CELL_SIZE]}
-            closed
-            stroke="#ccc"
-            strokeWidth={1}
-            fill="#f7f7f7"
-          />
-          
-          {/* Right Grid Background */}
-          <Line
-            points={[GRID_SIZE * CELL_SIZE + 20, 0, (GRID_SIZE * CELL_SIZE * 2) + 20, 0, (GRID_SIZE * CELL_SIZE * 2) + 20, GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE + 20, GRID_SIZE * CELL_SIZE]}
-            closed
-            stroke="#ccc"
-            strokeWidth={1}
-            fill="#f0f8ff"
-          />
-
           {/* Left Grid Lines */}
-          {gridLines.map((line, index) => (
-            <Line
-              key={`left-${index}`}
-              {...line.props}
-            />
-          ))}
-
-          {/* Right Grid Lines */}
-          {gridLines.map((line, index) => (
-            <Line
-              key={`right-${index}`}
-              {...line.props}
-              points={line.props.points.map((point, i) => 
-                i % 2 === 0 ? point + GRID_SIZE * CELL_SIZE + 20 : point
-              )}
-            />
-          ))}
+          {gridLines}
 
           {/* Left Grid Cells (clickable) */}
           {triangles.map((tri) => (
@@ -553,24 +486,15 @@ export default function App() {
             />
           ))}
 
-          {/* Green Prototype Shapes in Left Grid */}
-          {triangles.map((tri) => (
+          {/* Right Grid Lines */}
+          {rightGridLines.map(line => (
             <Line
-              key={`green-${tri.id}`}
-              id={`green-${tri.id}`}
-              points={tri.points}
-              closed
-              fill="#22c55e"
-              stroke={selectedIds.includes(tri.id) ? "red" : "#444"}
-              strokeWidth={selectedIds.includes(tri.id) ? 2 : 0.5}
-              x={tri.x || 0}
-              y={tri.y || 0}
-              rotation={tri.rotation || 0}
-              draggable
-              onClick={(e) => handleSelect(tri.id, e)}
-              onTap={(e) => handleSelect(tri.id, e)}
-              onDragEnd={handleDragEnd}
-              onTransformEnd={handleTransformEnd}
+              key={line.key}
+              points={line.props.points.map((point, i) => 
+                i % 2 === 0 ? point + GRID_SIZE * CELL_SIZE + 20 : point
+              )}
+              stroke={line.props.stroke}
+              strokeWidth={line.props.strokeWidth}
             />
           ))}
 
@@ -581,7 +505,6 @@ export default function App() {
             const cellX = cellCol * CELL_SIZE;
             const cellY = cellRow * CELL_SIZE;
             
-            // Check if this cell is occupied
             const isOccupied = placedShapes.some(shape => 
               Math.abs(shape.x - cellX) < CELL_SIZE && 
               Math.abs(shape.y - cellY) < CELL_SIZE
@@ -595,27 +518,81 @@ export default function App() {
                   i % 2 === 0 ? point + GRID_SIZE * CELL_SIZE + 20 : point
                 )}
                 closed
-                fill={isOccupied ? "#ff6b6b" : tri.fill} // Red if occupied, original color if free
+                fill={isOccupied ? "#ff6b6b" : tri.fill}
                 stroke={isOccupied ? "#ff0000" : "#444"}
                 strokeWidth={isOccupied ? 2 : 0.5}
                 opacity={isOccupied ? 0.6 : 0.3}
                 onClick={(e) => {
-                  // Only handle clicks if no placed shapes are in this area
                   if (!isOccupied) {
                     handleMoveToRightGrid(tri.id, e);
                   }
                 }}
                 style={{ cursor: isOccupied ? 'not-allowed' : 'pointer' }}
-                listening={!isOccupied} // Don't listen if occupied
+                listening={!isOccupied}
                 hitStrokeWidth={0}
               />
             );
           })}
         </Layer>
 
-        {/* Surface Layer - Placed Shapes */}
+        {/* Surface Layer - Interactive Shapes */}
         <Layer>
-          {/* Placed Shapes - always on top */}
+          {/* Green Prototype Shapes in Left Grid */}
+          {triangles.map((tri) => {
+            const isGrouped = tri.groupId;
+            const isSelected = selectedIds.includes(tri.id);
+            
+            return (
+              <Line
+                key={`green-${tri.id}`}
+                id={`green-${tri.id}`}
+                points={tri.points}
+                closed
+                fill={isGrouped ? "#3b82f6" : "#22c55e"}
+                stroke={isSelected ? "#ff0000" : isGrouped ? "#1d4ed8" : "#444"}
+                strokeWidth={isSelected ? 3 : isGrouped ? 2 : 0.5}
+                x={tri.x || 0}
+                y={tri.y || 0}
+                rotation={tri.rotation || 0}
+                draggable
+                onClick={(e) => {
+                  e.cancelBubble = true;
+                  if (isGrouped) {
+                    const groupShapes = triangles.filter(t => t.groupId === tri.groupId);
+                    setSelectedIds(groupShapes.map(s => s.id));
+                  } else {
+                    handleSelect(tri.id, e);
+                  }
+                }}
+                onTap={(e) => {
+                  e.cancelBubble = true;
+                  if (isGrouped) {
+                    const groupShapes = triangles.filter(t => t.groupId === tri.groupId);
+                    setSelectedIds(groupShapes.map(s => s.id));
+                  } else {
+                    handleSelect(tri.id, e);
+                  }
+                }}
+                onMouseDown={(e) => {
+                  e.cancelBubble = true;
+                  e.evt.stopPropagation();
+                }}
+                onDragStart={(e) => {
+                  e.cancelBubble = true;
+                  e.evt.stopPropagation();
+                  e.target.moveToTop();
+                  e.target.getStage().batchDraw();
+                }}
+                onDragEnd={handleDragEnd}
+                onTransformEnd={handleTransformEnd}
+                listening={true}
+                hitStrokeWidth={20}
+                perfectDrawEnabled={false}
+              />
+            );
+          })}
+
+          {/* Placed Shapes in Right Grid */}
           {placedShapes.map((shape) => (
             <Line
               key={shape.id}
@@ -625,38 +602,32 @@ export default function App() {
               fill={shape.fill}
               stroke="#ff0000"
               strokeWidth={3}
-              x={shape.x + GRID_SIZE * CELL_SIZE + 20} // Offset for right grid
+              x={shape.x + GRID_SIZE * CELL_SIZE + 20}
               y={shape.y}
               draggable
               onClick={(e) => {
                 e.cancelBubble = true;
                 e.evt.stopPropagation();
-                console.log("Clicked placed shape:", shape.id);
                 handleSelect(shape.id, e);
               }}
               onTap={(e) => {
                 e.cancelBubble = true;
                 e.evt.stopPropagation();
-                console.log("Tapped placed shape:", shape.id);
                 handleSelect(shape.id, e);
               }}
               onMouseDown={(e) => {
                 e.cancelBubble = true;
                 e.evt.stopPropagation();
-                console.log("Mouse down on placed shape:", shape.id);
               }}
               onDragStart={(e) => {
                 e.cancelBubble = true;
                 e.evt.stopPropagation();
-                console.log("Drag start on placed shape:", shape.id);
-                // Bring to front when dragging starts
                 e.target.moveToTop();
                 e.target.getStage().batchDraw();
               }}
               onDragEnd={(e) => {
                 e.cancelBubble = true;
                 e.evt.stopPropagation();
-                console.log("Drag end on placed shape:", shape.id);
                 handlePlacedShapeDragEnd(e);
               }}
               onTransformEnd={handleTransformEnd}
@@ -680,14 +651,23 @@ export default function App() {
                 selectionRect.y + selectionRect.height,
               ]}
               closed
+              fill="rgba(0, 0, 255, 0.1)"
               stroke="blue"
-              dash={[4, 4]}
-              fill="rgba(0,0,255,0.1)"
+              strokeWidth={1}
+              listening={false}
             />
           )}
 
           {/* Transformer */}
-          <Transformer ref={trRef} rotateEnabled={true} />
+          <Transformer
+            ref={trRef}
+            boundBoxFunc={(oldBox, newBox) => {
+              if (newBox.width < 5 || newBox.height < 5) {
+                return oldBox;
+              }
+              return newBox;
+            }}
+          />
         </Layer>
       </Stage>
     </div>
